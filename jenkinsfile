@@ -1,0 +1,85 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_ACCESS_KEY_ID     = credentials('AKIA3AAD56Y33YV4IPFW')
+        AWS_SECRET_ACCESS_KEY = credentials('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')
+        TF_IN_AUTOMATION      = "true"
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', 
+                    url: 'https://github.com/afrozfatma2/terraform-self-managed-k8s.git'
+            }
+        }
+
+        stage('Install Terraform (if not installed)') {
+            steps {
+                sh '''
+                if ! command -v terraform &> /dev/null
+                then
+                    echo "Terraform not found. Installing..."
+                    sudo yum install -y wget unzip
+                    wget https://releases.hashicorp.com/terraform/1.5.0/terraform_1.5.0_linux_amd64.zip
+                    unzip terraform_1.5.0_linux_amd64.zip
+                    sudo mv terraform /usr/local/bin/
+                fi
+                terraform --version
+                '''
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                sh '''
+                terraform init
+                '''
+            }
+        }
+
+        stage('Terraform Validate') {
+            steps {
+                sh '''
+                terraform validate
+                '''
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                sh '''
+                terraform plan -out=tfplan
+                '''
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                sh '''
+                terraform apply -auto-approve tfplan
+                '''
+            }
+        }
+
+        stage('Show Master Node') {
+            steps {
+                sh '''
+                echo "Kubernetes Master Public IP:"
+                terraform output master_public_ip
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Cluster created successfully!"
+        }
+        failure {
+            echo "Error! Build failed."
+        }
+    }
+}
