@@ -1,46 +1,50 @@
 pipeline {
     agent any
 
+    parameters {
+        choice(name: 'ACTION', choices: ['UP', 'DOWN'], description: 'Choose whether to create or destroy the Kubernetes cluster')
+    }
+
     environment {
-        AWS_DEFAULT_REGION = 'ap-south-1'  // Replace with your AWS region
+        AWS_DEFAULT_REGION = 'us-east-1' // Set your AWS region
     }
 
     stages {
         stage('Checkout Code') {
             steps {
-                // Pull code from GitHub
                 checkout scm
             }
         }
 
         stage('Terraform Init') {
             steps {
-                // Initialize Terraform
                 sh 'terraform init'
             }
         }
 
-        stage('Terraform Plan') {
+        stage('Terraform Execute') {
             steps {
-                // Show what Terraform will do
-                sh 'terraform plan'
-            }
-        }
-
-        stage('Terraform Apply') {
-            steps {
-                // Apply Terraform changes automatically
-                sh 'terraform apply -auto-approve'
+                script {
+                    if (params.ACTION == 'UP') {
+                        echo "Creating/updating Kubernetes cluster..."
+                        sh 'terraform apply -auto-approve'
+                    } else if (params.ACTION == 'DOWN') {
+                        echo "Destroying Kubernetes cluster..."
+                        sh 'terraform destroy -auto-approve'
+                    } else {
+                        error "Unknown ACTION: ${params.ACTION}"
+                    }
+                }
             }
         }
     }
 
     post {
         success {
-            echo "✅ Terraform applied successfully. Kubernetes cluster should be ready!"
+            echo "✅ Terraform execution completed successfully."
         }
         failure {
-            echo "❌ Build failed. Check logs for errors."
+            echo "❌ Terraform execution failed. Check logs."
         }
     }
 }
