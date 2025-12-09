@@ -1,0 +1,68 @@
+#cloud-config
+package_update: true
+
+runcmd:
+  # Disable swap
+  - swapoff -a
+  - sed -i '/ swap / s/^/#/' /etc/fstab
+
+  # Load kernel modules
+  - modprobe overlay
+  - modprobe br_netfilter
+  - |
+      cat <<EOF | tee /etc/modules-load.d/containerd.conf
+      overlay
+      br_netfilter
+      EOF
+
+  # Sysctl params
+  - |
+      cat <<EOF | tee /etc/sysctl.d/99-kubernetes-cri.conf
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+      EOF
+  - sysctl --system
+
+  # Install containerd
+  - yum install -y containerd
+  - |
+      containerd config default | tee /etc/containerd/config.toml >/dev/null
+  - sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+  - systemctl enable --now containerd
+
+  # Kubernetes repo
+  - |
+      cat <<EOF | tee /etc/yum.repos.d/kubernetes.repo
+      [kubernetes]
+      name=Kubernetes
+      baseurl=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/
+      enabled=1
+      gpgcheck=1
+      gpgkey=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/repomd.xml.key
+      EOF
+
+  # Install kubeadm, kubelet, kubectl
+  - yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+  - systemctl enable --now kubelet
+
+  # Initialize K8s Master
+  - kubeadm init --pod-network-cidr=192.168.0.0/16 | tee /root/kubeinit.txt
+
+  # Copy kubeconfig for ec2-user
+  - mkdir -p /home/ec2-user/.kube
+  - cp /etc/kubernetes/admin.conf /home/ec2-user/.kube/config
+  - chown ec2-user:ec2-user /home/ec2-user/.kube/config
+
+  # Install Calico
+  - runuser -l ec2-user -c "kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml"
+
+  # Save the join command to SSM Parameter Store
+  - |
+      JOIN_CMD=$(kubeadm token create --print-join-command)
+      aws ssm put-parameter \
+        --name "k8sJoinCommand" \
+        --value "$JOIN_CMD" \
+        --type String \
+        --overwrite \
+        --region ap-south-1
