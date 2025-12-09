@@ -11,31 +11,37 @@ sudo swapoff -a
 sudo sed -i '/ swap / s/^/#/' /etc/fstab
 
 # ------------------------------
-# INSTALL CONTAINERD
+# INSTALL DOCKER
 # ------------------------------
-sudo modprobe overlay
+sudo yum install -y yum-utils
+sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo yum install -y docker-ce docker-ce-cli containerd.io
+sudo systemctl enable --now docker
+
+# Configure Docker to use systemd cgroup driver
+cat <<EOF | sudo tee /etc/docker/daemon.json
+{
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m"
+  },
+  "storage-driver": "overlay2"
+}
+EOF
+
+sudo systemctl restart docker
+
+# ------------------------------
+# KUBERNETES PREREQUISITES
+# ------------------------------
 sudo modprobe br_netfilter
-
-cat <<EOF | sudo tee /etc/modules-load.d/containerd.conf
-overlay
-br_netfilter
-EOF
-
-cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
-net.ipv4.ip_forward                 = 1
-net.bridge.bridge-nf-call-iptables  = 1
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
 net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables  = 1
+net.ipv4.ip_forward                 = 1
 EOF
-
 sudo sysctl --system
-
-sudo yum install -y containerd
-
-containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
-sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-
-sudo systemctl enable --now containerd
-
 
 # ------------------------------
 # INSTALL KUBERNETES
@@ -52,9 +58,8 @@ EOF
 sudo yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
 sudo systemctl enable --now kubelet
 
-
 # ------------------------------
-# FETCH JOIN COMMAND FROM SSM
+# GET JOIN COMMAND FROM AWS SSM
 # ------------------------------
 JOIN_CMD=$(aws ssm get-parameter \
   --name "k8sJoinCommand" \
@@ -63,6 +68,11 @@ JOIN_CMD=$(aws ssm get-parameter \
   --output text)
 
 # ------------------------------
-# JOIN THE CLUSTER
+# JOIN KUBERNETES CLUSTER
 # ------------------------------
-sudo $JOIN_CMD
+sudo $JOIN_CMD --cri-socket /var/run/dockershim.sock
+
+# ------------------------------
+# START KUBELET
+# ------------------------------
+sudo systemctl restart kubelet

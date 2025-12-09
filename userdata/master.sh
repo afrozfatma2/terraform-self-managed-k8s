@@ -11,30 +11,37 @@ sudo swapoff -a
 sudo sed -i '/ swap / s/^/#/' /etc/fstab
 
 # ------------------------------
-# INSTALL CONTAINERD
+# INSTALL DOCKER
 # ------------------------------
-sudo modprobe overlay
+sudo yum install -y yum-utils
+sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo yum install -y docker-ce docker-ce-cli containerd.io
+sudo systemctl enable --now docker
+
+# Make sure Docker uses systemd cgroup driver
+cat <<EOF | sudo tee /etc/docker/daemon.json
+{
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m"
+  },
+  "storage-driver": "overlay2"
+}
+EOF
+
+sudo systemctl restart docker
+
+# ------------------------------
+# KUBERNETES PREREQUISITES
+# ------------------------------
 sudo modprobe br_netfilter
-
-cat <<EOF | sudo tee /etc/modules-load.d/containerd.conf
-overlay
-br_netfilter
-EOF
-
-cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
-net.ipv4.ip_forward                 = 1
-net.bridge.bridge-nf-call-iptables  = 1
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
 net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables  = 1
+net.ipv4.ip_forward                 = 1
 EOF
-
 sudo sysctl --system
-
-sudo yum install -y containerd
-
-containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
-sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-
-sudo systemctl enable --now containerd
 
 # ------------------------------
 # INSTALL KUBERNETES
@@ -54,23 +61,30 @@ sudo systemctl enable --now kubelet
 # ------------------------------
 # INITIALIZE K8S MASTER
 # ------------------------------
-sudo kubeadm init --pod-network-cidr=192.168.0.0/16 | tee /root/kubeinit.txt
+sudo kubeadm init \
+  --pod-network-cidr=192.168.0.0/16 \
+  --apiserver-advertise-address=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4) \
+  --cri-socket /var/run/dockershim.sock \
+  | tee /root/kubeinit.txt
 
-# Setup kubectl for ec2-user
-sudo mkdir -p /home/ec2-user/.kube
-sudo cp /etc/kubernetes/admin.conf /home/ec2-user/.kube/config
-sudo chown ec2-user:ec2-user /home/ec2-user/.kube/config
+# ------------------------------
+# SETUP KUBECTL FOR CURRENT USER
+# ------------------------------
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+export KUBECONFIG=$HOME/.kube/config
+echo "export KUBECONFIG=$HOME/.kube/config" >> ~/.bashrc
 
 # ------------------------------
 # INSTALL CALICO NETWORK
 # ------------------------------
-sudo -u ec2-user kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
 
 # ------------------------------
-# SAVE JOIN COMMAND IN SSM PARAMETER STORE
+# SAVE JOIN COMMAND IN AWS SSM PARAMETER STORE
 # ------------------------------
-JOIN_CMD=$(sudo kubeadm token create --print-join-command)
-
+JOIN_CMD=$(kubeadm token create --print-join-command)
 aws ssm put-parameter \
   --name "k8sJoinCommand" \
   --value "$JOIN_CMD" \
