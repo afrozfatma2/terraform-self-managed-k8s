@@ -21,18 +21,19 @@ runcmd:
     EOF
   - sysctl --system
 
-  # -------- Install CRI-O for AL2023 --------
+  # -------- Install CRI-O --------
   - dnf install -y crio
   - systemctl enable --now crio
+  - systemctl is-active --quiet crio || exit 1
 
-  # -------- Install kubeadm, kubelet, kubectl (binary method) --------
+  # -------- Install kubeadm, kubelet, kubectl --------
   - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubeadm
   - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubelet
   - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl
   - install -o root -g root -m 0755 kube* /usr/local/bin/
   - mkdir -p /etc/systemd/system/kubelet.service.d/
 
-  # Kubelet config
+  # -------- Kubelet service --------
   - |
     cat <<EOF > /etc/systemd/system/kubelet.service
     [Unit]
@@ -47,12 +48,12 @@ runcmd:
     [Install]
     WantedBy=multi-user.target
     EOF
-
   - systemctl daemon-reload
   - systemctl enable --now kubelet
+  - systemctl is-active --quiet kubelet || exit 1
 
-  # -------- Init Cluster --------
-  - kubeadm init --pod-network-cidr=192.168.0.0/16
+  # -------- Initialize Kubernetes Master --------
+  - kubeadm init --pod-network-cidr=192.168.0.0/16 --ignore-preflight-errors=all | tee /root/kubeinit.txt
 
   # -------- Setup kubectl for ec2-user --------
   - mkdir -p /home/ec2-user/.kube
@@ -61,4 +62,11 @@ runcmd:
 
   # -------- Install Calico --------
   - sudo -u ec2-user kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
-  
+
+  # -------- Verify API Server health --------
+  - for i in {1..10}; do curl -sf --connect-timeout 5 https://127.0.0.1:6443/healthz && break || sleep 5; done
+  - curl -sf --connect-timeout 5 https://127.0.0.1:6443/healthz || exit 1
+
+  # -------- Save join command in SSM --------
+  - JOIN_CMD=$(kubeadm token create --print-join-command)
+  - aws ssm put-parameter --name "k8sJoinCommand" --value "$JOIN_CMD" --type String --overwrite --region ap-south-1
