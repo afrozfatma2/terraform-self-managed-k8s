@@ -11,22 +11,29 @@ resource "aws_iam_role" "k8s_role" {
   })
 }
 
-resource "aws_iam_role_policy" "ssm_policy" {
+resource "aws_iam_role_policy" "k8s_ssm_policy" {
   name = "k8sSSMPolicy"
   role = aws_iam_role.k8s_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "ssm:PutParameter",
-        "ssm:GetParameter"
-      ]
-      Resource = "*"
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = [
+          "ssm:PutParameter",
+          "ssm:GetParameter",
+          "ssm:DescribeInstanceInformation",
+          "ssm:SendCommand",
+          "ssm:StartSession",
+          "ssm:TerminateSession"
+        ]
+        Resource = "*"
+      }
+    ]
   })
 }
+
 
 resource "aws_iam_instance_profile" "k8s_profile" {
   name = "k8sInstanceProfile"
@@ -42,6 +49,7 @@ resource "aws_instance" "master" {
   instance_type          = var.instance_type
   key_name               = var.key_name
   subnet_id              = var.subnet_id
+  security_groups        = var.security_group_id
   associate_public_ip_address = true
 
   iam_instance_profile = aws_iam_instance_profile.k8s_profile.name
@@ -62,6 +70,7 @@ resource "aws_instance" "worker" {
   instance_type          = var.instance_type
   key_name               = var.key_name
   subnet_id              = var.subnet_id
+  security_groups        = var.security_group_id
   associate_public_ip_address = true
 
   iam_instance_profile = aws_iam_instance_profile.k8s_profile.name
