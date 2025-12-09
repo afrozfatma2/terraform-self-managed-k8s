@@ -7,7 +7,7 @@ variable "instance_type" {
 }
 
 variable "key_name" {
-  default = "key-0954e5785311d80f9"
+  default = "jenkins-server-key"
 }
 
 variable "vpc_id" {
