@@ -18,7 +18,3 @@ variable "subnet_id" {
   default  = "subnet-00f2a35e44ae717e3"
 }
 
-variable "security_group_id" {
-  type    = list(string)
-  default = ["sg-0c64fc1d81aec2cde"]
-}
