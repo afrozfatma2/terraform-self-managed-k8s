@@ -1,68 +1,65 @@
 #cloud-config
+
 package_update: true
+package_upgrade: true
 
 runcmd:
-  # Disable swap
+  # -------- Disable Swap --------
   - swapoff -a
   - sed -i '/ swap / s/^/#/' /etc/fstab
 
-  # Load kernel modules
+  # -------- Kernel Modules --------
+  - echo -e "overlay\nbr_netfilter" | tee /etc/modules-load.d/k8s.conf
   - modprobe overlay
   - modprobe br_netfilter
-  - |
-      cat <<EOF | tee /etc/modules-load.d/containerd.conf
-      overlay
-      br_netfilter
-      EOF
 
-  # Sysctl params
+  # -------- Sysctl --------
   - |
-      cat <<EOF | tee /etc/sysctl.d/99-kubernetes-cri.conf
-      net.bridge.bridge-nf-call-iptables = 1
-      net.bridge.bridge-nf-call-ip6tables = 1
-      net.ipv4.ip_forward = 1
-      EOF
+    cat <<EOF > /etc/sysctl.d/k8s.conf
+    net.bridge.bridge-nf-call-iptables=1
+    net.bridge.bridge-nf-call-ip6tables=1
+    net.ipv4.ip_forward=1
+    EOF
   - sysctl --system
 
-  # Install containerd
-  - yum install -y containerd
-  - |
-      containerd config default | tee /etc/containerd/config.toml >/dev/null
+  # -------- Install containerd --------
+  - dnf install -y containerd
+  - containerd config default | tee /etc/containerd/config.toml
   - sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
   - systemctl enable --now containerd
 
-  # Kubernetes repo
+  # -------- Kubernetes Repo --------
   - |
-      cat <<EOF | tee /etc/yum.repos.d/kubernetes.repo
-      [kubernetes]
-      name=Kubernetes
-      baseurl=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/
-      enabled=1
-      gpgcheck=1
-      gpgkey=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/repomd.xml.key
-      EOF
+    cat <<EOF > /etc/yum.repos.d/kubernetes.repo
+    [kubernetes]
+    name=Kubernetes
+    baseurl=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/
+    enabled=1
+    gpgcheck=1
+    gpgkey=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/repomd.xml.key
+    EOF
 
-  # Install kubeadm, kubelet, kubectl
-  - yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+  # -------- Install kubelet, kubeadm, kubectl --------
+  - dnf install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
   - systemctl enable --now kubelet
 
-  # Initialize K8s Master
+  # -------- Initialize Control Plane --------
   - kubeadm init --pod-network-cidr=192.168.0.0/16 | tee /root/kubeinit.txt
 
-  # Copy kubeconfig for ec2-user
+  # -------- Configure kubectl for ec2-user --------
   - mkdir -p /home/ec2-user/.kube
   - cp /etc/kubernetes/admin.conf /home/ec2-user/.kube/config
   - chown ec2-user:ec2-user /home/ec2-user/.kube/config
 
-  # Install Calico
-  - runuser -l ec2-user -c "kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml"
+  # -------- Install Calico Network --------
+  - sudo -u ec2-user kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
 
-  # Save the join command to SSM Parameter Store
+  # -------- Save Join Command to SSM --------
+  - JOIN_CMD=$(kubeadm token create --print-join-command)
   - |
-      JOIN_CMD=$(kubeadm token create --print-join-command)
-      aws ssm put-parameter \
-        --name "k8sJoinCommand" \
-        --value "$JOIN_CMD" \
-        --type String \
-        --overwrite \
-        --region ap-south-1
+    aws ssm put-parameter \
+      --name "k8sJoinCommand" \
+      --value "$JOIN_CMD" \
+      --type String \
+      --overwrite \
+      --region ap-south-1
