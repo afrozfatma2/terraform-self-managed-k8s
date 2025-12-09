@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     parameters {
-        choice(name: 'ACTION', choices: ['UP', 'DOWN'], description: 'Choose whether to create or destroy the Kubernetes cluster')
+        choice(name: 'CLUSTER', choices: ['UP', 'DOWN'], description: 'Choose whether to create or destroy the Kubernetes cluster')
     }
 
     environment {
