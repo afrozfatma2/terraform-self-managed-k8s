@@ -11,28 +11,11 @@ resource "aws_iam_role" "k8s_role" {
   })
 }
 
-resource "aws_iam_role_policy" "k8s_ssm_policy" {
-  name = "k8sSSMPolicy"
-  role = aws_iam_role.k8s_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = [
-          "ssm:PutParameter",
-          "ssm:GetParameter",
-          "ssm:DescribeInstanceInformation",
-          "ssm:SendCommand",
-          "ssm:StartSession",
-          "ssm:TerminateSession"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
+resource "aws_iam_role_policy_attachment" "k8s_ssm_full" {
+  role       = aws_iam_role.k8s_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMFullAccess"
 }
+
 
 
 resource "aws_iam_instance_profile" "k8s_profile" {
