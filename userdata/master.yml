@@ -1,5 +1,4 @@
 #cloud-config
-
 package_update: true
 package_upgrade: true
 
@@ -9,7 +8,7 @@ runcmd:
   - sed -i '/ swap / s/^/#/' /etc/fstab
 
   # -------- Kernel Modules --------
-  - echo -e "overlay\nbr_netfilter" | tee /etc/modules-load.d/k8s.conf
+  - echo -e "overlay\nbr_netfilter" > /etc/modules-load.d/k8s.conf
   - modprobe overlay
   - modprobe br_netfilter
 
@@ -22,44 +21,44 @@ runcmd:
     EOF
   - sysctl --system
 
-  # -------- Install containerd --------
-  - dnf install -y containerd
-  - containerd config default | tee /etc/containerd/config.toml
-  - sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-  - systemctl enable --now containerd
+  # -------- Install CRI-O for AL2023 --------
+  - dnf install -y crio
+  - systemctl enable --now crio
 
-  # -------- Kubernetes Repo --------
+  # -------- Install kubeadm, kubelet, kubectl (binary method) --------
+  - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubeadm
+  - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubelet
+  - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl
+  - install -o root -g root -m 0755 kube* /usr/local/bin/
+  - mkdir -p /etc/systemd/system/kubelet.service.d/
+
+  # Kubelet config
   - |
-    cat <<EOF > /etc/yum.repos.d/kubernetes.repo
-    [kubernetes]
-    name=Kubernetes
-    baseurl=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/
-    enabled=1
-    gpgcheck=1
-    gpgkey=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/repomd.xml.key
+    cat <<EOF > /etc/systemd/system/kubelet.service
+    [Unit]
+    Description=kubelet
+    After=crio.service
+    Requires=crio.service
+
+    [Service]
+    ExecStart=/usr/local/bin/kubelet
+    Restart=always
+
+    [Install]
+    WantedBy=multi-user.target
     EOF
 
-  # -------- Install kubelet, kubeadm, kubectl --------
-  - dnf install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+  - systemctl daemon-reload
   - systemctl enable --now kubelet
 
-  # -------- Initialize Control Plane --------
-  - kubeadm init --pod-network-cidr=192.168.0.0/16 | tee /root/kubeinit.txt
+  # -------- Init Cluster --------
+  - kubeadm init --pod-network-cidr=192.168.0.0/16
 
-  # -------- Configure kubectl for ec2-user --------
+  # -------- Setup kubectl for ec2-user --------
   - mkdir -p /home/ec2-user/.kube
   - cp /etc/kubernetes/admin.conf /home/ec2-user/.kube/config
   - chown ec2-user:ec2-user /home/ec2-user/.kube/config
 
-  # -------- Install Calico Network --------
+  # -------- Install Calico --------
   - sudo -u ec2-user kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
-
-  # -------- Save Join Command to SSM --------
-  - JOIN_CMD=$(kubeadm token create --print-join-command)
-  - |
-    aws ssm put-parameter \
-      --name "k8sJoinCommand" \
-      --value "$JOIN_CMD" \
-      --type String \
-      --overwrite \
-      --region ap-south-1
+  
