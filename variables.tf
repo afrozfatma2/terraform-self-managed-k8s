@@ -18,3 +18,7 @@ variable "subnet_id" {
   default  = "subnet-00f2a35e44ae717e3"
 }
 
+variable "k8s_sg_id" {
+  description = "Security Group ID to assign to all cluster nodes"
+  type        = string
+}
