@@ -46,7 +46,7 @@ resource "aws_instance" "master" {
 
   iam_instance_profile = aws_iam_instance_profile.k8s_profile.name
 
-  user_data = file("userdata/master-al2.sh")
+  user_data = file("userdata/master.sh")
 
   tags = {
     Name = "k8s-master"
@@ -66,7 +66,7 @@ resource "aws_instance" "worker" {
 
   iam_instance_profile = aws_iam_instance_profile.k8s_profile.name
 
-  user_data = file("userdata/worker-al2.sh")
+  user_data = file("userdata/worker.sh")
 
   tags = {
     Name = "k8s-worker-${count.index + 1}"
