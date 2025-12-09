@@ -7,7 +7,7 @@ variable "instance_type" {
 }
 
 variable "key_name" {
-  description = "jenkins-server-key"
+  description = "key-0954e5785311d80f9"
 }
 
 variable "vpc_id" {
