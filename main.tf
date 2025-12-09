@@ -38,7 +38,7 @@ resource "aws_iam_instance_profile" "k8s_profile" {
 
 
 resource "aws_instance" "master" {
-  ami                    = "ami-0c2b8ca1dad447f8a"  # Amazon Linux 2 x86_64
+  ami                    = "ami-00ca570c1b6d79f36"  # Amazon Linux 2 x86_64
   instance_type          = var.instance_type
   key_name               = var.key_name
   subnet_id              = var.subnet_id
@@ -58,7 +58,7 @@ resource "aws_instance" "master" {
 
 resource "aws_instance" "worker" {
   count                  = 2
-  ami                    = "ami-0c2b8ca1dad447f8a"  # Amazon Linux 2
+  ami                    = "ami-00ca570c1b6d79f36"  # Amazon Linux 2
   instance_type          = var.instance_type
   key_name               = var.key_name
   subnet_id              = var.subnet_id
