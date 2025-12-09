@@ -1,43 +1,35 @@
 #!/bin/bash
+set -e
 
+dnf update -y
 
-#aws cli and docker
-#swap disable
-#k8s components
-#join cmd from SSM 
-#run join cmd
-
-#-Installing aws cli and docker
-amazon-linux-extras install docker -y
-yum install -y awscli
+# Install Docker
+dnf install -y docker
 systemctl enable docker
 systemctl start docker
 usermod -aG docker ec2-user
 
-# -sawp disable (commenting out in /etc/fstab)
+# Disable swap
 swapoff -a
 sed -i '/ swap / s/^/#/' /etc/fstab
 
-# -installing k8s components
+# Kubernetes repo
 cat <<EOF > /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/
+baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
 enabled=1
 gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/repodata/repomd.xml.key
+repo_gpgcheck=1
+gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg
 EOF
 
-yum install -y kubelet kubeadm kubectl
+# Install kubeadm, kubelet, kubectl
+dnf install -y kubelet kubeadm kubectl
 systemctl enable kubelet
-systemctl start kubelet
 
-# -fetch join cmd from SSM (fetching token)
-JOIN_CMD=$(aws ssm get-parameter \
-  --name "k8sJoinCommand" \
-  --region us-east-1 \
-  --query "Parameter.Value" \
-  --output text)
+# Fetch join command from SSM
+JOIN_CMD=$(aws ssm get-parameter --name "k8sJoinCommand" --query "Parameter.Value" --output text --region ap-south-1)
 
-# -run join cmd
-eval $JOIN_CMD
+# Join the cluster
+$JOIN_CMD
