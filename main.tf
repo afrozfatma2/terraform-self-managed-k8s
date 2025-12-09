@@ -32,7 +32,7 @@ resource "aws_instance" "master" {
   instance_type          = var.instance_type
   key_name               = var.key_name
   subnet_id              = var.subnet_id
-  security_groups        = var.k8s-master-sg
+  vpc_security_group_ids = [var.k8s_sg_id]
   associate_public_ip_address = true
 
   iam_instance_profile = aws_iam_instance_profile.k8s_profile.name
@@ -53,7 +53,7 @@ resource "aws_instance" "worker" {
   instance_type          = var.instance_type
   key_name               = var.key_name
   subnet_id              = var.subnet_id
-  security_groups        = var.k8s-worker-sg
+  vpc_security_group_ids = [var.k8s_sg_id]
   associate_public_ip_address = true
 
   iam_instance_profile = aws_iam_instance_profile.k8s_profile.name
