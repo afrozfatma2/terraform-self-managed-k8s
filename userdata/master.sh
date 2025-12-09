@@ -58,7 +58,7 @@ sudo kubeadm init --pod-network-cidr=192.168.0.0/16 | tee /root/kubeinit.txt
 
 # Setup kubectl for ec2-user
 sudo mkdir -p /home/ec2-user/.kube
-sudo cp -i /etc/kubernetes/admin.conf /home/ec2-user/.kube/config
+sudo cp /etc/kubernetes/admin.conf /home/ec2-user/.kube/config
 sudo chown ec2-user:ec2-user /home/ec2-user/.kube/config
 
 # ------------------------------
