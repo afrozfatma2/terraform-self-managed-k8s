@@ -10,7 +10,6 @@ sudo yum update -y
 sudo swapoff -a
 sudo sed -i '/ swap / s/^/#/' /etc/fstab
 
-
 # ------------------------------
 # INSTALL containerd
 # ------------------------------
@@ -22,7 +21,6 @@ overlay
 br_netfilter
 EOF
 
-# sysctl settings
 cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
 net.ipv4.ip_forward                 = 1
 net.bridge.bridge-nf-call-iptables  = 1
@@ -33,11 +31,11 @@ sudo sysctl --system
 
 sudo yum install -y containerd
 
+sudo mkdir -p /etc/containerd
 containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
 sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 
 sudo systemctl enable --now containerd
-
 
 # ------------------------------
 # INSTALL Kubernetes
@@ -54,25 +52,28 @@ EOF
 sudo yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
 sudo systemctl enable --now kubelet
 
-
 # ------------------------------
 # Initialize Master Node
 # ------------------------------
 sudo kubeadm init --pod-network-cidr=192.168.0.0/16 | tee /root/kubeinit.txt
 
+# ------------------------------
+# Setup kubeconfig for ec2-user
+# ------------------------------
 mkdir -p /home/ec2-user/.kube
 sudo cp /etc/kubernetes/admin.conf /home/ec2-user/.kube/config
 sudo chown ec2-user:ec2-user /home/ec2-user/.kube/config
 
+# Also set kubectl config for root (optional but recommended)
+export KUBECONFIG=/etc/kubernetes/admin.conf
 
 # ------------------------------
-# Install Calico
+# Install Calico CNI
 # ------------------------------
 sudo -u ec2-user kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
 
-
 # ------------------------------
-# Save Join Command to SSM
+# Save JOIN Command to SSM
 # ------------------------------
 JOIN_CMD=$(kubeadm token create --print-join-command)
 
