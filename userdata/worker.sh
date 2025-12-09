@@ -1,62 +1,68 @@
 #!/bin/bash
-set -e
+set -xe
 
-if [ -z "$1" ]; then
-    echo "Usage: $0 '<kubeadm join command from master>'"
-    exit 1
-fi
+# ------------------------------
+# UPDATE SYSTEM
+# ------------------------------
+sudo yum update -y
 
-JOIN_CMD="$1"
-
-echo "=== Updating system ==="
-sudo dnf update -y
-
-# Function to check and install a command if missing
-install_if_missing() {
-    CMD=$1
-    PKG=$2
-    if ! command -v $CMD &> /dev/null; then
-        echo "Installing $CMD..."
-        sudo dnf install -y $PKG
-    else
-        echo "$CMD is already installed"
-    fi
-}
-
-echo "=== Installing Docker ==="
-sudo dnf install -y dnf-plugins-core
-sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-install_if_missing docker docker-ce
-
-sudo systemctl enable docker
-sudo systemctl start docker
-sudo systemctl status docker --no-pager || { echo "Docker failed to start"; exit 1; }
-
-echo "=== Disabling swap ==="
+# Disable swap
 sudo swapoff -a
 sudo sed -i '/ swap / s/^/#/' /etc/fstab
 
-echo "=== Adding Kubernetes repository ==="
+# ------------------------------
+# INSTALL containerd
+# ------------------------------
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+cat <<EOF | sudo tee /etc/modules-load.d/containerd.conf
+overlay
+br_netfilter
+EOF
+
+# sysctl settings
+cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
+net.ipv4.ip_forward                 = 1
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+EOF
+
+sudo sysctl --system
+
+sudo yum install -y containerd
+
+containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+
+sudo systemctl enable --now containerd
+
+# ------------------------------
+# INSTALL Kubernetes
+# ------------------------------
 cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
-baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/
 enabled=1
 gpgcheck=1
-repo_gpgcheck=1
-gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/repomd.xml.key
 EOF
 
-echo "=== Installing kubeadm, kubelet, kubectl ==="
-install_if_missing kubeadm kubeadm
-install_if_missing kubelet kubelet
-install_if_missing kubectl kubectl
+sudo yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+sudo systemctl enable --now kubelet
 
-sudo systemctl enable kubelet
-sudo systemctl start kubelet
-sudo systemctl status kubelet --no-pager || { echo "kubelet failed to start"; exit 1; }
+# ------------------------------
+# JOIN CLUSTER
+# ------------------------------
 
-echo "=== Joining the Kubernetes cluster ==="
+# Fetch join command from AWS SSM Parameter Store
+JOIN_CMD=$(aws ssm get-parameter --name "k8sJoinCommand" --region ap-south-1 --query "Parameter.Value" --output text)
+
+# Run join command as root
 sudo $JOIN_CMD
 
-echo "Worker node setup complete!"
+# ------------------------------
+# Verify Node
+# ------------------------------
+echo "Worker node setup complete. Verify with 'kubectl get nodes' from master."
