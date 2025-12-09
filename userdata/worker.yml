@@ -3,16 +3,16 @@ package_update: true
 package_upgrade: true
 
 runcmd:
-  # -------- Disable Swap --------
+  # -------------------- Disable Swap --------------------
   - swapoff -a
   - sed -i '/ swap / s/^/#/' /etc/fstab
 
-  # -------- Kernel Modules --------
+  # -------------------- Kernel Modules --------------------
   - echo -e "overlay\nbr_netfilter" > /etc/modules-load.d/k8s.conf
   - modprobe overlay
   - modprobe br_netfilter
 
-  # -------- Sysctl --------
+  # -------------------- Sysctl --------------------
   - |
     cat <<EOF > /etc/sysctl.d/k8s.conf
     net.bridge.bridge-nf-call-iptables=1
@@ -21,19 +21,19 @@ runcmd:
     EOF
   - sysctl --system
 
-  # -------- Install CRI-O --------
+  # -------------------- Install CRI-O --------------------
   - dnf install -y crio
   - systemctl enable --now crio
-  - systemctl is-active --quiet crio || exit 1
 
-  # -------- Install kubeadm, kubelet, kubectl --------
+  # -------------------- Install Kubernetes Binaries --------------------
   - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubeadm
   - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubelet
   - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl
-  - install -o root -g root -m 0755 kube* /usr/local/bin/
+  - chmod +x kube*
+  - mv kube* /usr/local/bin/
   - mkdir -p /etc/systemd/system/kubelet.service.d/
 
-  # -------- Kubelet service --------
+  # Kubelet service
   - |
     cat <<EOF > /etc/systemd/system/kubelet.service
     [Unit]
@@ -50,16 +50,13 @@ runcmd:
     EOF
   - systemctl daemon-reload
   - systemctl enable --now kubelet
-  - systemctl is-active --quiet kubelet || exit 1
 
-  # -------- Fetch join command from SSM --------
-  - for i in {1..10}; do JOIN_CMD=$(aws ssm get-parameter --name "k8sJoinCommand" --query "Parameter.Value" --output text --region ap-south-1) && [ -n "$JOIN_CMD" ] && break || sleep 5; done
-  - [ -z "$JOIN_CMD" ] && exit 1
+  # -------------------- Fetch Join Command from SSM and Join Cluster --------------------
+  - JOIN_CMD=$(aws ssm get-parameter --name "k8sJoinCommand" --region ap-south-1 --query "Parameter.Value" --output text)
+  - $JOIN_CMD
 
-  # -------- Join the cluster --------
-  - $JOIN_CMD || exit 1
-
-  # -------- Verify communication with Master --------
-  - MASTER_IP=$(echo $JOIN_CMD | awk '{print $3}' | cut -d':' -f1)
-  - for i in {1..10}; do curl -sf --connect-timeout 5 https://$MASTER_IP:6443/healthz && break || sleep 5; done
-  - curl -sf --connect-timeout 5 https://$MASTER_IP:6443/healthz || exit 1
+  # -------------------- Health Check --------------------
+  - |
+    systemctl is-active crio || exit 1
+    systemctl is-active kubelet || exit 1
+    kubectl get nodes || exit 1

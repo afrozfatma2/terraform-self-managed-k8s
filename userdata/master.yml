@@ -3,16 +3,16 @@ package_update: true
 package_upgrade: true
 
 runcmd:
-  # -------- Disable Swap --------
+  # -------------------- Disable Swap --------------------
   - swapoff -a
   - sed -i '/ swap / s/^/#/' /etc/fstab
 
-  # -------- Kernel Modules --------
+  # -------------------- Kernel Modules --------------------
   - echo -e "overlay\nbr_netfilter" > /etc/modules-load.d/k8s.conf
   - modprobe overlay
   - modprobe br_netfilter
 
-  # -------- Sysctl --------
+  # -------------------- Sysctl --------------------
   - |
     cat <<EOF > /etc/sysctl.d/k8s.conf
     net.bridge.bridge-nf-call-iptables=1
@@ -21,19 +21,19 @@ runcmd:
     EOF
   - sysctl --system
 
-  # -------- Install CRI-O --------
+  # -------------------- Install CRI-O --------------------
   - dnf install -y crio
   - systemctl enable --now crio
-  - systemctl is-active --quiet crio || exit 1
 
-  # -------- Install kubeadm, kubelet, kubectl --------
+  # -------------------- Install Kubernetes Binaries --------------------
   - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubeadm
   - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubelet
   - curl -LO https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl
-  - install -o root -g root -m 0755 kube* /usr/local/bin/
+  - chmod +x kube*
+  - mv kube* /usr/local/bin/
   - mkdir -p /etc/systemd/system/kubelet.service.d/
 
-  # -------- Kubelet service --------
+  # Kubelet service
   - |
     cat <<EOF > /etc/systemd/system/kubelet.service
     [Unit]
@@ -50,23 +50,24 @@ runcmd:
     EOF
   - systemctl daemon-reload
   - systemctl enable --now kubelet
-  - systemctl is-active --quiet kubelet || exit 1
 
-  # -------- Initialize Kubernetes Master --------
-  - kubeadm init --pod-network-cidr=192.168.0.0/16 --ignore-preflight-errors=all | tee /root/kubeinit.txt
+  # -------------------- Initialize Kubernetes Master --------------------
+  - kubeadm init --pod-network-cidr=192.168.0.0/16 --ignore-preflight-errors=all | tee /root/kubeinit.log
 
-  # -------- Setup kubectl for ec2-user --------
+  # -------------------- Configure kubectl for ec2-user --------------------
   - mkdir -p /home/ec2-user/.kube
   - cp /etc/kubernetes/admin.conf /home/ec2-user/.kube/config
   - chown ec2-user:ec2-user /home/ec2-user/.kube/config
 
-  # -------- Install Calico --------
+  # -------------------- Install Calico --------------------
   - sudo -u ec2-user kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
 
-  # -------- Verify API Server health --------
-  - for i in {1..10}; do curl -sf --connect-timeout 5 https://127.0.0.1:6443/healthz && break || sleep 5; done
-  - curl -sf --connect-timeout 5 https://127.0.0.1:6443/healthz || exit 1
+  # -------------------- Health Check --------------------
+  - |
+    systemctl is-active crio || exit 1
+    systemctl is-active kubelet || exit 1
+    sudo -u ec2-user kubectl get nodes || exit 1
 
-  # -------- Save join command in SSM --------
+  # -------------------- Save Join Command to SSM --------------------
   - JOIN_CMD=$(kubeadm token create --print-join-command)
   - aws ssm put-parameter --name "k8sJoinCommand" --value "$JOIN_CMD" --type String --overwrite --region ap-south-1
