@@ -15,5 +15,5 @@ variable "vpc_id" {
 }
 
 variable "subnet_id" {
-  description = "Subnet where EC2 will be created"
+  description = "subnet-00f2a35e44ae717e3"
 }
