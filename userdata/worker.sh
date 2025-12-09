@@ -1,78 +1,48 @@
 #!/bin/bash
-set -xe
+set -e
 
-# ------------------------------
-# UPDATE SYSTEM
-# ------------------------------
+echo "Updating system..."
 sudo yum update -y
 
-# Disable swap
+echo "Installing Docker..."
+sudo amazon-linux-extras enable docker
+sudo yum install -y docker
+sudo systemctl enable docker
+sudo systemctl start docker
+
+echo "Disabling swap..."
 sudo swapoff -a
 sudo sed -i '/ swap / s/^/#/' /etc/fstab
 
-# ------------------------------
-# INSTALL DOCKER
-# ------------------------------
-sudo yum install -y yum-utils
-sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-sudo yum install -y docker-ce docker-ce-cli containerd.io
-sudo systemctl enable --now docker
-
-# Configure Docker to use systemd cgroup driver
-cat <<EOF | sudo tee /etc/docker/daemon.json
-{
-  "exec-opts": ["native.cgroupdriver=systemd"],
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "100m"
-  },
-  "storage-driver": "overlay2"
-}
-EOF
-
-sudo systemctl restart docker
-
-# ------------------------------
-# KUBERNETES PREREQUISITES
-# ------------------------------
-sudo modprobe br_netfilter
-cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
-net.bridge.bridge-nf-call-ip6tables = 1
-net.bridge.bridge-nf-call-iptables  = 1
-net.ipv4.ip_forward                 = 1
-EOF
-sudo sysctl --system
-
-# ------------------------------
-# INSTALL KUBERNETES
-# ------------------------------
+echo "Adding Kubernetes repository..."
 cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/
+baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
 enabled=1
 gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/repodata/repomd.xml.key
+repo_gpgcheck=1
+gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
 EOF
 
-sudo yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
-sudo systemctl enable --now kubelet
+sudo yum install -y kubelet kubeadm kubectl
+sudo systemctl enable kubelet
+sudo systemctl start kubelet
 
-# ------------------------------
-# GET JOIN COMMAND FROM AWS SSM
-# ------------------------------
-JOIN_CMD=$(aws ssm get-parameter \
-  --name "k8sJoinCommand" \
-  --region ap-south-1 \
-  --query "Parameter.Value" \
-  --output text)
+echo "Initializing Kubernetes master..."
+sudo kubeadm init --pod-network-cidr=192.168.0.0/16 | tee kubeadm-init.log
 
-# ------------------------------
-# JOIN KUBERNETES CLUSTER
-# ------------------------------
-sudo $JOIN_CMD --cri-socket /var/run/dockershim.sock
+echo "Setting up kubeconfig for user..."
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
-# ------------------------------
-# START KUBELET
-# ------------------------------
-sudo systemctl restart kubelet
+echo "Installing Calico network plugin..."
+kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+
+# Extract kubeadm join command
+JOIN_COMMAND=$(grep "kubeadm join" kubeadm-init.log -A 2 | tr -d '\n')
+echo "===================================================="
+echo "Use the following command on worker nodes to join the cluster:"
+echo "$JOIN_COMMAND"
+echo "===================================================="
