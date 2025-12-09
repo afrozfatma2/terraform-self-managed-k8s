@@ -1,8 +1,3 @@
-variable "vpc_id" {
-  description = "VPC ID"
-  type        = string
-}
-
 # Master SG
 resource "aws_security_group" "k8s_master_sg" {
   name        = "k8s-master-sg"
