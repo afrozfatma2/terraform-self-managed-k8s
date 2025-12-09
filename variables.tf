@@ -7,7 +7,7 @@ variable "instance_type" {
 }
 
 variable "key_name" {
-  description = "key-0954e5785311d80f9"
+  default = "key-0954e5785311d80f9"
 }
 
 variable "vpc_id" {
@@ -15,5 +15,5 @@ variable "vpc_id" {
 }
 
 variable "subnet_id" {
-  description = "subnet-00f2a35e44ae717e3"
+  default  = "subnet-00f2a35e44ae717e3"
 }
