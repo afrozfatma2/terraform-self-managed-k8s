@@ -25,14 +25,14 @@ pipeline {
         stage('Terraform Execute') {
             steps {
                 script {
-                    if (params.ACTION == 'UP') {
+                    if (params.CLUSTER == 'UP') {
                         echo "Creating/updating Kubernetes cluster..."
                         sh 'terraform apply -auto-approve'
-                    } else if (params.ACTION == 'DOWN') {
+                    } else if (params.CLUSTER == 'DOWN') {
                         echo "Destroying Kubernetes cluster..."
                         sh 'terraform destroy -auto-approve'
                     } else {
-                        error "Unknown ACTION: ${params.ACTION}"
+                        error "Unknown CLUSTER: ${params.CLUSTER}"
                     }
                 }
             }
@@ -41,10 +41,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Terraform execution completed successfully."
+            echo "Terraform execution completed successfully."
         }
         failure {
-            echo "❌ Terraform execution failed. Check logs."
+            echo "Terraform execution failed. Check logs."
         }
     }
 }
